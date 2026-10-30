@@ -101,10 +101,12 @@ class MultiUserBotListener:
             lowest_str = f"{p['min_price']:.2f} €" if p.get("min_price") else "N/D"
 
             tag_param = f"?tag={self.affiliate_tag}" if self.affiliate_tag else ""
+            keepa_url = f"https://keepa.com/#!product/8-{asin}"
             lines.append(
                 f"▫️ *{name[:38]}* ({capacity})\n"
                 f"   💵 Attuale: `{latest_str}` | 📉 Minimo: `{lowest_str}`\n"
-                f"   🎯 Tuo Target: `{target:.2f} €` | [Amazon](https://www.amazon.it/dp/{asin}{tag_param})\n"
+                f"   🎯 Tuo Target: `{target:.2f} €`\n"
+                f"   🛒 [Amazon](https://www.amazon.it/dp/{asin}{tag_param}) | 📈 [Grafico Keepa]({keepa_url})\n"
             )
 
         self.send_to_user(chat_id, "\n".join(lines))
@@ -156,6 +158,7 @@ class MultiUserBotListener:
         if curr_price > 0:
             self.storage.record_price(asin, curr_price, res.get("discount_pct", 0), res.get("deal_badge", ""), res.get("is_available", True))
 
+        keepa_url = f"https://keepa.com/#!product/8-{asin}"
         self.send_to_user(
             chat_id,
             f"🎉 *SSD aggiunto al tuo monitoraggio personale!*\n\n"
@@ -163,6 +166,7 @@ class MultiUserBotListener:
             f"▫️ Taglio: *{capacity}* | Formato: *2280*\n"
             f"💰 Prezzo Attuale: *{curr_price:.2f} €*\n"
             f"🎯 Tuo Prezzo Target: *{target_price:.2f} €*\n\n"
+            f"📈 [Visualizza storico prezzi su Keepa]({keepa_url})\n"
             f"🔔 Ti invieremo un messaggio privato appena il prezzo scende sotto `{target_price:.2f} €`!"
         )
 

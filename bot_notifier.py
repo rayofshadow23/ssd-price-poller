@@ -31,6 +31,7 @@ def format_telegram_alert(
 
     tag_param = f"?tag={affiliate_tag}" if affiliate_tag else ""
     url = f"https://www.amazon.it/dp/{asin}{tag_param}"
+    keepa_url = f"https://keepa.com/#!product/8-{asin}"
 
     msg = (
         f"🚨 *ALLERTA PREZZO SSD BLACK FRIDAY!* 🚨\n\n"
@@ -43,7 +44,8 @@ def format_telegram_alert(
         f"{disc_line}"
         f"{low_line}"
         f"{badge_line}\n"
-        f"🛒 [👉 Clicca qui per aprire su Amazon.it]({url})"
+        f"🛒 [👉 Apri offerta su Amazon.it]({url})\n"
+        f"📈 [📊 Grafico storico prezzi Keepa]({keepa_url})"
     )
     return msg
 
