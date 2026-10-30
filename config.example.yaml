@@ -1,0 +1,103 @@
+# Configurazione SSD Price Drop Poller (Black Friday)
+# Copia questo file in config.yaml e compila con il tuo token Telegram
+
+telegram_bot:
+  # Inserisci il token rilasciato da @BotFather (es. "7123456789:AAFxxx...")
+  token: "INSERISCI_QUI_IL_TUO_TOKEN_BOTFATHER"
+  # ID chat dell'amministratore (opzionale)
+  chat_id: 0
+  fallback_to_tgpipe: false
+
+amazon_affiliate:
+  # Inserisci il tuo Tracking ID Amazon Associates (es. "nomestore-21")
+  # Tutti i link inviati conterranno automaticamente il tuo tag!
+  tag: ""
+
+alert_rules:
+  # Ore di attesa prima di reinviare un alert per lo stesso prodotto allo stesso prezzo
+  cooldown_hours: 6
+  # Invia notifica se viene battuto il minimo storico registrato nel database
+  notify_on_all_time_low: true
+  # Invia se lo sconto rispetto al prezzo di listino supera questa percentuale
+  min_discount_percentage: 10
+
+# Pausa tra le richieste HTTP (secondi) per rispettare i limiti di Amazon
+poll_delay_seconds: 4
+
+# Lista SSD M.2 PCIe 4.0 (2280) monitorati di default
+tracked_products:
+  # === 1TB Top Tier con DRAM Cache (~7.000+ MB/s) ===
+  - asin: "B0B9C3ZVHR"
+    name: "Samsung 990 PRO 1TB (PCIe 4.0 con DRAM)"
+    target_price: 195.00
+    capacity: "1TB"
+    form_factor: "2280"
+
+  - asin: "B0B7CKVCCV"
+    name: "WD_BLACK SN850X 1TB (PCIe 4.0 con DRAM)"
+    target_price: 189.00
+    capacity: "1TB"
+    form_factor: "2280"
+
+  - asin: "B09K7F5VJQ"
+    name: "Kingston KC3000 1TB (PCIe 4.0 con DRAM)"
+    target_price: 189.00
+    capacity: "1TB"
+    form_factor: "2280"
+
+  - asin: "B0CK39YR9V"
+    name: "Crucial T500 1TB (PCIe 4.0 con DRAM)"
+    target_price: 185.00
+    capacity: "1TB"
+    form_factor: "2280"
+
+  # === 1TB Mid-Range / Best-Buy HMB ===
+  - asin: "B0C4H5KXL6"
+    name: "Lexar NM790 1TB (PCIe 4.0 HMB)"
+    target_price: 139.00
+    capacity: "1TB"
+    form_factor: "2280"
+
+  - asin: "B0C8XMH264"
+    name: "WD Blue SN580 1TB (PCIe 4.0 Economico)"
+    target_price: 135.00
+    capacity: "1TB"
+    form_factor: "2280"
+
+  # === 1TB Entry-Level / Budget ===
+  - asin: "B0DBR3DZWG"
+    name: "Kingston NV3 1TB (PCIe 4.0 Budget)"
+    target_price: 105.00
+    capacity: "1TB"
+    form_factor: "2280"
+
+  - asin: "B0DC8VPSHV"
+    name: "Crucial P310 1TB (PCIe 4.0 Entry-Level)"
+    target_price: 105.00
+    capacity: "1TB"
+    form_factor: "2280"
+
+  # === Selezione 2TB ===
+  - asin: "B0B9C4DKKG"
+    name: "Samsung 990 PRO 2TB (PCIe 4.0 con DRAM)"
+    target_price: 299.00
+    capacity: "2TB"
+    form_factor: "2280"
+
+  - asin: "B0B7CMZ3QH"
+    name: "WD_BLACK SN850X 2TB (PCIe 4.0 con DRAM)"
+    target_price: 289.00
+    capacity: "2TB"
+    form_factor: "2280"
+
+  - asin: "B0CK2TC9XQ"
+    name: "Crucial T500 2TB (PCIe 4.0 con DRAM)"
+    target_price: 275.00
+    capacity: "2TB"
+    form_factor: "2280"
+
+  - asin: "B0CHS1SN9K"
+    name: "Lexar NQ790 2TB (PCIe 4.0)"
+    target_price: 229.00
+    capacity: "2TB"
+    form_factor: "2280"

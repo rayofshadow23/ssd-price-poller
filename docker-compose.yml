@@ -1,0 +1,22 @@
+services:
+  ssd-bot:
+    build: .
+    container_name: ssd-price-bot
+    restart: unless-stopped
+    environment:
+      - TZ=Europe/Rome
+      - DATA_DIR=/app/data
+      # Opzionale: puoi specificare il token qui oppure direttamente in data/config.yaml
+      # - TELEGRAM_BOT_TOKEN=IL_TUO_TOKEN_BOTFATHER
+    volumes:
+      # Volume persistente per database SQLite e configurazione
+      - ./data:/app/data
+    deploy:
+      resources:
+        limits:
+          memory: 150M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

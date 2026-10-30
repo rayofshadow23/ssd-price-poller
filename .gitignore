@@ -1,0 +1,29 @@
+# Configurazione privata con token e chat_id
+config.yaml
+.env
+
+# Database locale SQLite e volumi dati
+data/
+*.db
+*.db-journal
+
+# File temporanei Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+
+# Ambienti virtuali
+venv/
+.venv/
+env/
+
+# Log
+*.log
+poller.log
+
+# IDE e file di sistema
+.DS_Store
+.idea/
+.vscode/
