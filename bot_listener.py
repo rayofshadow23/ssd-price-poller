@@ -183,6 +183,22 @@ class MultiUserBotListener:
         else:
             self.send_to_user(chat_id, f"ℹ️ Il prodotto `{asin}` non era presente nella tua lista.")
 
+    def handle_users(self, chat_id: int):
+        if chat_id != self.default_owner_id:
+            self.send_to_user(chat_id, "⛔ Comando riservato all'amministratore.")
+            return
+
+        users = self.storage.get_all_users_stats()
+        lines = [f"👥 *Utenti Registrati nel Database* ({len(users)} totali):\n"]
+        for u in users:
+            uname = f"@{u['username']}" if u['username'] != "N/D" else "N/D"
+            lines.append(
+                f"▫️ *Utente*: `{uname}` (ID: `{u['chat_id']}`)\n"
+                f"   📦 SSD Monitorati: *{u['ssd_count']}*\n"
+                f"   📅 Iscritto il: `{u['joined_at'][:16]}`\n"
+            )
+        self.send_to_user(chat_id, "\n".join(lines))
+
     def handle_set_target(self, chat_id: int, text: str):
         asin_match = re.search(r"([B0-9A-Z]{10})", text)
         if not asin_match:
@@ -334,6 +350,8 @@ class MultiUserBotListener:
             self.handle_help(chat_id, first_name)
         elif cmd in ["/list", "/elenco"]:
             self.handle_list(chat_id)
+        elif cmd in ["/users", "/utenti", "/stats"]:
+            self.handle_users(chat_id)
         elif cmd in ["/check", "/scansiona"]:
             self.run_check_cycle(for_user_chat_id=chat_id)
         elif cmd in ["/remove", "/del", "/delete"]:

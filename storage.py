@@ -250,6 +250,22 @@ class Storage:
 
         return True, reason
 
+    def get_all_users_stats(self) -> List[Dict[str, Any]]:
+        """Restituisce le statistiche su tutti gli utenti attivi e i loro SSD monitorati."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT 
+                    us.chat_id,
+                    COALESCE(NULLIF(us.username, ''), 'N/D') as username,
+                    COUNT(us.asin) as ssd_count,
+                    MIN(us.created_at) as joined_at
+                FROM user_subscriptions us
+                GROUP BY us.chat_id
+                ORDER BY joined_at DESC
+            """)
+            return [dict(row) for row in cursor.fetchall()]
+
     def should_send_alert(self, asin: str, current_price: float, target_price: float, cooldown_hours: int = 6, notify_on_all_time_low: bool = True) -> Tuple[bool, str]:
         """Metodo di compatibilità per uso standalone (chat_id = 0)."""
         return self.should_send_user_alert(0, asin, current_price, target_price, cooldown_hours, notify_on_all_time_low)

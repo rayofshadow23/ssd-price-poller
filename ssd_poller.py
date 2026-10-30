@@ -89,7 +89,18 @@ def add_product(config: Dict[str, Any], url_or_asin: str, target_price: float, c
         storage = Storage()
         storage.record_price(asin, curr_price, res.get("discount_pct", 0), res.get("deal_badge", ""), res.get("is_available", True))
         print(f"   Prezzo iniziale registrato nel database.")
-    products = config.get("tracked_products", [])
+
+def list_users(storage: Storage):
+    users = storage.get_all_users_stats()
+    print(f"\n👥 Utenti registrati nel database ({len(users)} totali):\n")
+    print(f"{'Chat ID':<12} | {'Username':<18} | {'SSD Monitorati':<14} | {'Data Iscrizione'}")
+    print("-" * 65)
+    for u in users:
+        uname = f"@{u['username']}" if u['username'] != "N/D" else "N/D"
+        print(f"{u['chat_id']:<12} | {uname:<18} | {u['ssd_count']:<14} | {u['joined_at']}")
+    print()
+
+def list_products(config: Dict[str, Any], storage: Storage):
     print(f"\n📋 Prodotti configurati in monitoraggio ({len(products)} totali):\n")
     print(f"{'ASIN':<12} | {'Taglio':<6} | {'Target €':<10} | {'Ultimo €':<10} | {'Minimo €':<10} | Nome")
     print("-" * 80)
@@ -195,6 +206,7 @@ def main():
     parser.add_argument("--dry-run", action="store_true", help="Scansiona i prezzi senza salvare o inviare notifiche")
     parser.add_argument("--test-alert", action="store_true", help="Invia un messaggio di prova su Telegram")
     parser.add_argument("--list", action="store_true", help="Mostra i prodotti monitorati e i prezzi correnti")
+    parser.add_argument("--users", action="store_true", help="Mostra gli utenti registrati e le loro statistiche")
     parser.add_argument("--add", metavar="ASIN_OR_URL", help="Aggiunge un nuovo SSD tramite ASIN o URL Amazon")
     parser.add_argument("--target", type=float, default=0.0, help="Prezzo target (€) per il nuovo prodotto aggiunto")
     parser.add_argument("--name", default="", help="Nome opzionale per il nuovo prodotto aggiunto")
@@ -205,6 +217,8 @@ def main():
 
     if args.add:
         add_product(config, args.add, target_price=args.target, name_override=args.name)
+    elif args.users:
+        list_users(storage)
     elif args.test_alert:
         run_test_alert(config)
     elif args.list:
