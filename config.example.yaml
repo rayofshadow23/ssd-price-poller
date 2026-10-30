@@ -24,6 +24,9 @@ alert_rules:
 # Pausa tra le richieste HTTP (secondi) per rispettare i limiti di Amazon
 poll_delay_seconds: 4
 
+# Intervallo tra le scansioni automatiche in background (in minuti)
+check_interval_minutes: 30
+
 # Lista SSD M.2 PCIe 4.0 (2280) monitorati di default
 tracked_products:
   # === 1TB Top Tier con DRAM Cache (~7.000+ MB/s) ===

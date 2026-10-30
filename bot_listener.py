@@ -345,11 +345,14 @@ class MultiUserBotListener:
 
     def run(self):
         print("🚀 Multi-User Bot Listener avviato. Aperto a qualsiasi utente Telegram...")
-        CHECK_INTERVAL_SECONDS = 1800
+        interval_min = self.config.get("check_interval_minutes", 30)
+        print(f"[Daemon] Intervallo scansione automatica impostato a {interval_min} minuti.")
         self.last_poll_time = time.time()
 
         while True:
             try:
+                # Ricarica l'intervallo se viene modificato in config
+                CHECK_INTERVAL_SECONDS = self.config.get("check_interval_minutes", 30) * 60
                 url = f"https://api.telegram.org/bot{self.token}/getUpdates"
                 params = {
                     "offset": self.last_update_id + 1,
