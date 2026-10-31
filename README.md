@@ -7,11 +7,13 @@ Progettato per girare 24/7 su **Raspberry Pi**, server Linux o qualsiasi host Do
 
 ## 🌟 Caratteristiche
 
-- **Multi-Utente Autonomo**: Chiunque può avviare il bot su Telegram; ogni utente ha la propria lista di SSD e le notifiche arrivano **solo ed esclusivamente a chi ha richiesto il monitoraggio**.
+- **Controllo Accessi & Allowlist**: Accesso privato protetto (`allowed_chat_ids` in `config.yaml`): solo gli utenti autorizzati possono inviare comandi al bot. Tutti gli altri messaggi vengono ignorati silenziosamente.
+- **Scraper Sicuro Anti-Blocco**: Impersonificazione TLS Chrome (tramite `curl_cffi`), rate limiting globale con jitter casuale, cache 10 min e *circuit breaker* automatico in caso di CAPTCHA/429.
+- **Protezione Anti-Abuso**: Limite configurabile di SSD per utente (default 15) e cooldown sulla scansione manuale `/check` (default 10 min) per non sovraccaricare l'IP di casa.
 - **Aggiunta istantanea da Chat Telegram**: Incolla qualsiasi link Amazon o ASIN direttamente in chat con il tuo prezzo target desiderato (es. `https://amazon.it/... 130`).
 - **Database SQLite embedded**: Zero configurazione, salva automaticamente storico prezzi, all-time lows e previene lo spam (cooldown 6 ore).
 - **Controllo automatico periodico**: Esegue la scansione dei prezzi ogni 30 minuti in background e notifica all'istante quando un SSD scende sotto la soglia.
-- **Docker & Raspberry Pi Ready**: `docker-compose.yml` preconfigurato con volumi persistenti e riavvio automatico.
+- **Docker & Raspberry Pi Ready**: `docker-compose.yml` preconfigurato con volumi persistenti e riavvio automatico al boot (`restart: unless-stopped`).
 
 ---
 
@@ -23,12 +25,22 @@ Progettato per girare 24/7 su **Raspberry Pi**, server Linux o qualsiasi host Do
 scp -r ssd-price-poller pi@raspberrypi.local:~/
 ```
 
-### 2. Configura il Token Telegram
-Modifica `config.yaml` inserendo il token del bot ottenuto da `@BotFather`:
+### 2. Configura Token e Utenti Autorizzati
+Copia `config.example.yaml` in `config.yaml` e inserisci il token Telegram e gli ID autorizzati:
 ```yaml
 telegram_bot:
   token: "IL_TUO_TOKEN_BOTFATHER"
+  owner_chat_id: 12345678       # Tuo ID Telegram (abilita il comando admin /users)
+  owner_username: "tuo_username"
+  allowed_chat_ids:             # IMPORTANTE: Solo questi ID possono usare il bot
+    - 12345678
+    - 87654321
+
+limits:
+  max_asins_per_user: 15        # Max SSD per utente
+  check_cooldown_minutes: 10    # Cooldown tra comandi /check consecutivi
 ```
+*(Nota: per trovare il tuo ID numerico di Telegram puoi scrivere al bot `@userinfobot`).*
 
 ### 3. Avvia il container in background
 ```bash
@@ -129,13 +141,25 @@ python3 bot_listener.py
 | Comando | Descrizione |
 | :--- | :--- |
 | `<link Amazon> <prezzo>` | Incolla un link con il prezzo target (es. `https://amazon.it/dp/B0CK39YR9V 130`) per iniziare a monitorarlo. |
-| `/add <ASIN> <prezzo>` | Aggiunge un SSD indicando solo l'ASIN. |
+| `/add <ASIN> <prezzo>` | Aggiunge un SSD indicando solo l'ASIN e il prezzo target. |
 | `/list` | Mostra i tuoi SSD monitorati con prezzo attuale, target e minimo storico. |
 | `/target <ASIN> <prezzo>` | Modifica/aggiorna la tua soglia target per un SSD già monitorato. |
 | `/reset <ASIN>` | Reimposta la soglia al valore automatico di sconto (-15% sul prezzo attuale). |
-| `/check` | Forza un controllo istantaneo dei tuoi SSD. |
+| `/check` | Forza un controllo istantaneo dei tuoi SSD (soggetto a cooldown di 10 min). |
 | `/remove <ASIN>` | Rimuove un SSD dalla tua lista personale. |
+| `/users` | Mostra le statistiche degli utenti registrati (riservato all'amministratore/owner). |
 | `/help` | Mostra la guida dei comandi. |
+
+---
+
+## 🌐 Requisiti di Rete e Firewall (per Raspberry Pi / Reti Chiuse)
+
+Se installi il bot su una rete protetta o isolata (es. VLAN dedicata):
+
+- **Porte in Ingresso (Inbound): NESSUNA.** Il bot opera come client via *long-polling* (`getUpdates`); non serve aprire alcuna porta né fare port forwarding sul router.
+- **Porte in Uscita (Outbound):**
+  - **TCP `443` (HTTPS):** verso `api.telegram.org` e `www.amazon.it`.
+  - **UDP/TCP `53` (DNS):** per la risoluzione dei domini.
 
 ---
 
