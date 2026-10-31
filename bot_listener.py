@@ -15,21 +15,47 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.environ.get("DATA_DIR", SCRIPT_DIR)
 CONFIG_PATH = os.path.join(DATA_DIR, "config.yaml") if os.path.exists(os.path.join(DATA_DIR, "config.yaml")) else os.path.join(SCRIPT_DIR, "config.yaml")
 
+
 def load_config() -> Dict[str, Any]:
     with open(CONFIG_PATH, "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
+
 
 class MultiUserBotListener:
     def __init__(self):
         self.config = load_config()
         self.storage = Storage()
-        self.token = self.config.get("telegram_bot", {}).get("token", "").strip()
-        self.default_owner_id = int(self.config.get("telegram_bot", {}).get("chat_id", 123456789))
-        self.affiliate_tag = self.config.get("amazon_affiliate", {}).get("tag", "").strip()
+        tg_cfg = self.config.get("telegram_bot", {}) or {}
+        self.token = (tg_cfg.get("token") or "").strip()
+
+        # --- Access control (all values come from the private config.yaml) ---
+        # Owner: can use /users. Read from owner_chat_id, or from the old "chat_id" key.
+        owner_raw = tg_cfg.get("owner_chat_id") or tg_cfg.get("chat_id")
+        self.owner_id: Optional[int] = int(owner_raw) if owner_raw else None
+        self.owner_username = (tg_cfg.get("owner_username") or "").strip()
+
+        # Allowlist: ONLY these chat IDs can use the bot. Empty list = nobody (fail closed).
+        self.allowed_ids = {int(x) for x in (tg_cfg.get("allowed_chat_ids") or [])}
+        if not self.allowed_ids:
+            print("[SECURITY] 'telegram_bot.allowed_chat_ids' è vuoto: il bot ignorerà TUTTI i messaggi.")
+
+        # --- Abuse limits ---
+        limits = self.config.get("limits", {}) or {}
+        self.max_asins_per_user = int(limits.get("max_asins_per_user", 15))
+        self.check_cooldown_s = float(limits.get("check_cooldown_minutes", 10)) * 60
+        self._last_check: Dict[int, float] = {}
+
+        self.affiliate_tag = (self.config.get("amazon_affiliate", {}) or {}).get("tag", "").strip()
         self.last_update_id = 0
         self.last_poll_time = 0
         self._seed_initial_products()
         self._register_bot_commands()
+
+    def is_allowed(self, chat_id: int) -> bool:
+        try:
+            return int(chat_id) in self.allowed_ids
+        except (TypeError, ValueError):
+            return False
 
     def _register_bot_commands(self):
         """Registra il menu dei comandi nativo di Telegram visibile digitando '/'."""
@@ -49,7 +75,9 @@ class MultiUserBotListener:
 
     def _seed_initial_products(self):
         """Se il database non ha ancora sottoscrizioni, migra i prodotti di config.yaml per l'owner."""
-        subs = self.storage.get_user_subscriptions(self.default_owner_id)
+        if self.owner_id is None or not self.is_allowed(self.owner_id):
+            return
+        subs = self.storage.get_user_subscriptions(self.owner_id)
         if not subs:
             for p in self.config.get("tracked_products", []):
                 asin = p["asin"]
@@ -57,8 +85,9 @@ class MultiUserBotListener:
                 capacity = p.get("capacity", "2TB")
                 form_factor = p.get("form_factor", "2280")
                 target = float(p.get("target_price", 100.0))
+
                 self.storage.upsert_product(asin, name, capacity, form_factor)
-                self.storage.subscribe_user(self.default_owner_id, "example_user", asin, target)
+                self.storage.subscribe_user(self.owner_id, self.owner_username, asin, target)
             print(f"[Seed] Migrati {len(self.config.get('tracked_products', []))} SSD predefiniti per l'account owner.")
 
     def send_to_user(self, chat_id: int, text: str) -> bool:
@@ -96,19 +125,18 @@ class MultiUserBotListener:
             name = p.get("name", asin)
             target = p.get("target_price", 0.0)
             capacity = p.get("capacity", "")
-            
             latest_str = f"{p['latest_price']:.2f} €" if p.get("latest_price") else "N/D"
             lowest_str = f"{p['min_price']:.2f} €" if p.get("min_price") else "N/D"
 
             tag_param = f"?tag={self.affiliate_tag}" if self.affiliate_tag else ""
             keepa_url = f"https://keepa.com/#!product/8-{asin}"
+
             lines.append(
                 f"▫️ *{name[:38]}* ({capacity})\n"
                 f"   💵 Attuale: `{latest_str}` | 📉 Minimo: `{lowest_str}`\n"
                 f"   🎯 Tuo Target: `{target:.2f} €`\n"
                 f"   🛒 [Amazon](https://www.amazon.it/dp/{asin}{tag_param}) | 📈 [Grafico Keepa]({keepa_url})\n"
             )
-
         self.send_to_user(chat_id, "\n".join(lines))
 
     def handle_add(self, chat_id: int, username: str, text: str):
@@ -118,6 +146,17 @@ class MultiUserBotListener:
             return
 
         asin = asin_match.group(1)
+
+        # Per-user cap: protects the home IP from unlimited requests
+        subs = self.storage.get_user_subscriptions(chat_id)
+        already_tracked = any(s["asin"] == asin for s in subs)
+        if not already_tracked and len(subs) >= self.max_asins_per_user:
+            self.send_to_user(
+                chat_id,
+                f"⛔ Hai raggiunto il limite di {self.max_asins_per_user} SSD monitorati. "
+                "Rimuovine uno con `/remove <ASIN>` prima di aggiungerne un altro."
+            )
+            return
 
         # Rimuovi l'URL intero, il comando /add e l'ASIN per isolare solo il prezzo target dell'utente
         clean_text = re.sub(r"https?://\S+", "", text)
@@ -133,8 +172,12 @@ class MultiUserBotListener:
                 pass
 
         self.send_to_user(chat_id, f"🔍 Recupero informazioni su Amazon.it per `{asin}`...")
-
         res = fetch_amazon_product(asin)
+
+        if res.get("blocked"):
+            self.send_to_user(chat_id, f"⏸️ Amazon è in pausa di sicurezza ({res.get('error')}). Riprova più tardi.")
+            return
+
         if not res["success"]:
             self.send_to_user(chat_id, f"⚠️ Errore nel rilevamento del prodotto su Amazon: {res.get('error')}")
             return
@@ -184,7 +227,7 @@ class MultiUserBotListener:
             self.send_to_user(chat_id, f"ℹ️ Il prodotto `{asin}` non era presente nella tua lista.")
 
     def handle_users(self, chat_id: int):
-        if chat_id != self.default_owner_id:
+        if self.owner_id is None or chat_id != self.owner_id:
             self.send_to_user(chat_id, "⛔ Comando riservato all'amministratore.")
             return
 
@@ -192,8 +235,9 @@ class MultiUserBotListener:
         lines = [f"👥 *Utenti Registrati nel Database* ({len(users)} totali):\n"]
         for u in users:
             uname = f"@{u['username']}" if u['username'] != "N/D" else "N/D"
+            allowed_mark = "✅" if self.is_allowed(u['chat_id']) else "🚫"
             lines.append(
-                f"▫️ *Utente*: `{uname}` (ID: `{u['chat_id']}`)\n"
+                f"▫️ *Utente*: `{uname}` (ID: `{u['chat_id']}`) {allowed_mark}\n"
                 f"   📦 SSD Monitorati: *{u['ssd_count']}*\n"
                 f"   📅 Iscritto il: `{u['joined_at'][:16]}`\n"
             )
@@ -218,6 +262,7 @@ class MultiUserBotListener:
         new_target = float(m_num.group(1).replace(",", "."))
         prod = self.storage.get_product(asin)
         name = prod.get("name", asin) if prod else asin
+
         self.storage.subscribe_user(chat_id, "", asin, new_target)
 
         latest = self.storage.get_latest_price(asin)
@@ -246,6 +291,9 @@ class MultiUserBotListener:
 
         if curr_price <= 0:
             res = fetch_amazon_product(asin)
+            if res.get("blocked"):
+                self.send_to_user(chat_id, f"⏸️ Amazon è in pausa di sicurezza ({res.get('error')}). Riprova più tardi.")
+                return
             curr_price = res.get("price", 0.0)
 
         new_target = round(curr_price * 0.85, 2) if curr_price > 0 else 100.0
@@ -260,7 +308,7 @@ class MultiUserBotListener:
         )
 
     def run_check_cycle(self, for_user_chat_id: Optional[int] = None):
-        """Scansiona tutti gli ASIN monitorati e notifica i rispettivi utenti iscritti."""
+        """Scansiona gli ASIN monitorati e notifica i rispettivi utenti iscritti (solo utenti in allowlist)."""
         if for_user_chat_id:
             # Scansione manuale richiesta da un utente: controlla solo i suoi ASIN
             user_subs = self.storage.get_user_subscriptions(for_user_chat_id)
@@ -276,7 +324,24 @@ class MultiUserBotListener:
         delay = self.config.get("poll_delay_seconds", 4)
 
         for idx, asin in enumerate(asins_to_check, start=1):
+            # Only subscribers in the allowlist count. Old subscriptions from users who are
+            # not allowed are ignored: no Amazon request is made for ASINs only they follow.
+            subscribers = [
+                s for s in self.storage.get_subscribers_for_asin(asin)
+                if self.is_allowed(s["chat_id"])
+            ]
+            if not subscribers:
+                continue
+
             res = fetch_amazon_product(asin)
+
+            if res.get("blocked"):
+                # Amazon showed a CAPTCHA / block: stop the whole cycle, do not try other ASINs.
+                print(f"[Daemon] Amazon in pausa ({res.get('error')}). Scansione interrotta.")
+                if for_user_chat_id:
+                    self.send_to_user(for_user_chat_id, f"⏸️ Amazon è in pausa di sicurezza ({res.get('error')}). Scansione interrotta.")
+                return
+
             if not res["success"]:
                 time.sleep(delay)
                 continue
@@ -284,12 +349,10 @@ class MultiUserBotListener:
             curr_price = res["price"]
             discount_pct = res["discount_pct"]
             deal_badge = res["deal_badge"]
-
             prev_lowest = self.storage.get_lowest_price(asin)
+
             self.storage.record_price(asin, curr_price, discount_pct, deal_badge, res["is_available"])
 
-            # Recupera tutti gli utenti che stanno monitorando questo ASIN
-            subscribers = self.storage.get_subscribers_for_asin(asin)
             prod_info = self.storage.get_product(asin) or {}
             prod_name = prod_info.get("name") or res.get("title") or asin
             capacity = prod_info.get("capacity", "2TB")
@@ -331,14 +394,32 @@ class MultiUserBotListener:
         if for_user_chat_id:
             self.send_to_user(for_user_chat_id, "🏁 Scansione completata! Tutti i prezzi sono stati aggiornati.")
 
+    def handle_check(self, chat_id: int):
+        """Manual scan with a per-user cooldown."""
+        now = time.time()
+        wait = self.check_cooldown_s - (now - self._last_check.get(chat_id, 0.0))
+        if wait > 0:
+            self.send_to_user(chat_id, f"⏳ Controllo manuale disponibile tra circa {int(wait // 60) + 1} min.")
+            return
+        self._last_check[chat_id] = now
+        self.run_check_cycle(for_user_chat_id=chat_id)
+
     def process_incoming_message(self, message: Dict[str, Any]):
-        chat_id = message.get("chat", {}).get("id")
+        chat = message.get("chat", {}) or {}
+        chat_id = chat.get("id")
         if not chat_id:
+            return
+
+        # Access control: private chats only, and only chat IDs in the allowlist.
+        # Everyone else is ignored silently (no reply, message text is not logged).
+        if chat.get("type") != "private" or not self.is_allowed(chat_id):
+            print(f"[Security] Messaggio ignorato da chat non autorizzata: {chat_id}")
             return
 
         username = message.get("from", {}).get("username", "")
         first_name = message.get("from", {}).get("first_name", "Utente")
         text = message.get("text", "").strip()
+
         if not text:
             return
 
@@ -353,7 +434,7 @@ class MultiUserBotListener:
         elif cmd in ["/users", "/utenti", "/stats"]:
             self.handle_users(chat_id)
         elif cmd in ["/check", "/scansiona"]:
-            self.run_check_cycle(for_user_chat_id=chat_id)
+            self.handle_check(chat_id)
         elif cmd in ["/remove", "/del", "/delete"]:
             self.handle_remove(chat_id, text)
         elif cmd in ["/target", "/soglia", "/set"]:
@@ -366,15 +447,17 @@ class MultiUserBotListener:
             self.send_to_user(chat_id, "❓ Comando non riconosciuto. Invia un link Amazon con prezzo target, oppure `/list`, `/check`, `/help`.")
 
     def run(self):
-        print("🚀 Multi-User Bot Listener avviato. Aperto a qualsiasi utente Telegram...")
+        print(f"🚀 Multi-User Bot Listener avviato. Accesso limitato a {len(self.allowed_ids)} chat in allowlist.")
         interval_min = self.config.get("check_interval_minutes", 30)
         print(f"[Daemon] Intervallo scansione automatica impostato a {interval_min} minuti.")
+
         self.last_poll_time = time.time()
 
         while True:
             try:
                 # Ricarica l'intervallo se viene modificato in config
                 CHECK_INTERVAL_SECONDS = self.config.get("check_interval_minutes", 30) * 60
+
                 url = f"https://api.telegram.org/bot{self.token}/getUpdates"
                 params = {
                     "offset": self.last_update_id + 1,
@@ -399,6 +482,7 @@ class MultiUserBotListener:
             except Exception as e:
                 print(f"[Error] Loop exception: {e}")
                 time.sleep(5)
+
 
 if __name__ == "__main__":
     listener = MultiUserBotListener()

@@ -27,3 +27,6 @@ poller.log
 .DS_Store
 .idea/
 .vscode/
+
+# Patch files
+*.patch

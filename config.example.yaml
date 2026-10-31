@@ -4,9 +4,19 @@
 telegram_bot:
   # Inserisci il token rilasciato da @BotFather (es. "7123456789:AAFxxx...")
   token: "INSERISCI_QUI_IL_TUO_TOKEN_BOTFATHER"
-  # ID chat dell'amministratore (opzionale)
-  chat_id: 0
+  # ID chat dell'amministratore (può usare /users)
+  owner_chat_id: 0
+  owner_username: "tuo_username"
+  # Allowlist: SOLO questi chat_id numerici possono interagire con il bot
+  allowed_chat_ids:
+    - 0  # Inserisci qui il tuo chat_id e quelli autorizzati
   fallback_to_tgpipe: false
+
+limits:
+  # Massimo numero di SSD che ciascun utente autorizzato può monitorare
+  max_asins_per_user: 15
+  # Tempo di attesa minimo tra una scansione manuale (/check) e la successiva (in minuti)
+  check_cooldown_minutes: 10
 
 amazon_affiliate:
   # Inserisci il tuo Tracking ID Amazon Associates (es. "nomestore-21")
