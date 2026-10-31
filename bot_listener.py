@@ -139,6 +139,34 @@ class MultiUserBotListener:
             )
         self.send_to_user(chat_id, "\n".join(lines))
 
+    def handle_report(self, chat_id: int):
+        subs = self.storage.get_user_subscriptions(chat_id)
+        if not subs:
+            self.send_to_user(chat_id, "📋 Nessun SSD in monitoraggio. Aggiungine uno con `/add <link> <target>`.")
+            return
+
+        lines = [f"📊 *Report SSD* ({len(subs)} totali)\n"]
+        for p in subs:
+            asin = p["asin"]
+            name = p.get("name", asin)
+            target = p.get("target_price", 0.0)
+            capacity = p.get("capacity", "")
+            res = fetch_amazon_product(asin)
+            current = res.get("price") if res.get("success") else None
+            status = ""
+            if current is not None and target and current <= target:
+                status = " ✅ TARGET RAGGIUNTO"
+            elif current is not None and target:
+                status = f" (gap: {current-target:+.2f} €)"
+            cur_str = f"{current:.2f} €" if current is not None else "N/D"
+            tag_param = f"?tag={self.affiliate_tag}" if self.affiliate_tag else ""
+            lines.append(
+                f"▫️ *{name[:36]}* ({capacity})\n"
+                f"   💵 Attuale: `{cur_str}` | 🎯 Target: `{target:.2f} €`{status}\n"
+                f"   🛒 [Amazon](https://www.amazon.it/dp/{asin}{tag_param})\n"
+            )
+        self.send_to_user(chat_id, "\n".join(lines))
+
     def handle_add(self, chat_id: int, username: str, text: str):
         asin_match = re.search(r"(?:/dp/|/gp/product/|)([B0-9A-Z]{10})", text)
         if not asin_match:
@@ -431,6 +459,8 @@ class MultiUserBotListener:
             self.handle_help(chat_id, first_name)
         elif cmd in ["/list", "/elenco"]:
             self.handle_list(chat_id)
+        elif cmd in ["/report", "/resoconto"]:
+            self.handle_report(chat_id)
         elif cmd in ["/users", "/utenti", "/stats"]:
             self.handle_users(chat_id)
         elif cmd in ["/check", "/scansiona"]:
