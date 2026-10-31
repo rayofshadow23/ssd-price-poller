@@ -140,6 +140,7 @@ class MultiUserBotListener:
         self.send_to_user(chat_id, "\n".join(lines))
 
     def handle_report(self, chat_id: int):
+        print("[DEBUG] handle_report called")
         subs = self.storage.get_user_subscriptions(chat_id)
         if not subs:
             self.send_to_user(chat_id, "📋 Nessun SSD in monitoraggio. Aggiungine uno con `/add <link> <target>`.")
@@ -160,10 +161,11 @@ class MultiUserBotListener:
                 status = f" (gap: {current-target:+.2f} €)"
             cur_str = f"{current:.2f} €" if current is not None else "N/D"
             tag_param = f"?tag={self.affiliate_tag}" if self.affiliate_tag else ""
+            keepa_url = f"https://keepa.com/#!product/8-{asin}"
             lines.append(
                 f"▫️ *{name[:36]}* ({capacity})\n"
                 f"   💵 Attuale: `{cur_str}` | 🎯 Target: `{target:.2f} €`{status}\n"
-                f"   🛒 [Amazon](https://www.amazon.it/dp/{asin}{tag_param})\n"
+                f"   🛒 [Amazon](https://www.amazon.it/dp/{asin}{tag_param}) | 📈 [Keepa]({keepa_url})\n"
             )
         self.send_to_user(chat_id, "\n".join(lines))
 
