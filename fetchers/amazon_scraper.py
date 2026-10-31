@@ -208,12 +208,14 @@ def _price_region(html: str) -> Tuple[str, bool]:
 
 
 def _find_price(region: str) -> float:
-    # a) screen-reader price inside the block
-    m = re.search(r'class=["\'][^"\']*a-offscreen[^"\']*["\']>\s*([0-9.,]+)\s*(?:€|&euro;|&nbsp;€)?\s*<', region)
-    if m:
+    # a) screen-reader price inside the block: take the lowest (sale price) when multiple
+    prices = []
+    for m in re.finditer(r'class=["\'][^"\']*a-offscreen[^"\']*["\']>\s*([0-9.,]+)\s*(?:€|&euro;|&nbsp;€)?\s*<', region):
         p = parse_price_str(m.group(1))
         if p:
-            return p
+            prices.append(p)
+    if prices:
+        return min(prices)
     # b) whole + fraction
     m_whole = re.search(r'class=["\']a-price-whole["\']>([0-9.,]+)<', region)
     m_frac = re.search(r'class=["\']a-price-fraction["\']>([0-9]+)<', region)
