@@ -91,8 +91,8 @@ def send_notification(config: Dict[str, Any], text: str) -> bool:
     """
     bot_conf = config.get("telegram_bot", {})
     token = bot_conf.get("token", "").strip()
-    chat_id = bot_conf.get("chat_id", 123456789)
-    fallback = bot_conf.get("fallback_to_tgpipe", True)
+    chat_id = bot_conf.get("chat_id") or bot_conf.get("owner_chat_id")
+    fallback = bot_conf.get("fallback_to_tgpipe", False)
 
     # Verifica se il token ha un formato verosimile per un bot Telegram (es. 123456:ABC-DEF...)
     is_valid_token = bool(token and ":" in token and not token.startswith("INSERISCI_"))
