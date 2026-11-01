@@ -9,7 +9,7 @@ from typing import Dict, Any
 
 from storage import Storage
 from fetchers.amazon_scraper import fetch_amazon_product
-from bot_notifier import format_telegram_alert, send_notification
+from bot_notifier import format_telegram_alert, send_via_telegram_bot, send_notification
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.environ.get("DATA_DIR", SCRIPT_DIR)
@@ -120,26 +120,44 @@ def list_products(config: Dict[str, Any], storage: Storage):
     print()
 
 def check_all_products(config: Dict[str, Any], storage: Storage, dry_run: bool = False):
-    products = config.get("tracked_products", [])
+    """
+    Scansiona gli ASIN iscritti nel DATABASE (stessa logica del /check di Telegram).
+    I target sono quelli impostati per ogni utente con /target. Gli alert vanno solo
+    agli utenti in telegram_bot.allowed_chat_ids, ognuno con il proprio target.
+    """
+    tg_cfg = config.get("telegram_bot", {}) or {}
+    token = (tg_cfg.get("token") or "").strip()
+    allowed = {int(x) for x in (tg_cfg.get("allowed_chat_ids") or [])}
     alert_rules = config.get("alert_rules", {})
     cooldown_hours = alert_rules.get("cooldown_hours", 6)
     notify_on_all_time_low = alert_rules.get("notify_on_all_time_low", True)
-    delay = config.get("poll_delay_seconds", 3)
+    delay = config.get("poll_delay_seconds", 4)
 
-    print(f"\n🔍 Avvio scansione prezzi SSD ({len(products)} prodotti)... [DryRun={dry_run}]")
+    if not allowed:
+        print("[SECURITY] telegram_bot.allowed_chat_ids vuoto: nessun alert verrà inviato.")
+
+    asins = storage.get_all_active_asins()
+    print(f"\n🔍 Avvio scansione prezzi SSD ({len(asins)} prodotti dal database)... [DryRun={dry_run}]")
 
     alerts_triggered = 0
 
-    for idx, p in enumerate(products, start=1):
-        asin = p["asin"]
-        name = p.get("name", f"SSD {asin}")
-        target_price = float(p.get("target_price", 0.0))
-        form_factor = p.get("form_factor", "2280")
-        capacity = p.get("capacity", "2TB")
+    for idx, asin in enumerate(asins, start=1):
+        subscribers = [s for s in storage.get_subscribers_for_asin(asin) if int(s["chat_id"]) in allowed]
+        if not subscribers:
+            print(f"\n[{idx}/{len(asins)}] {asin}: nessun utente autorizzato iscritto, salto.")
+            continue
 
-        print(f"\n[{idx}/{len(products)}] Controllo {asin}: {name} (Target: {target_price:.2f} €)")
-        
+        prod = storage.get_product(asin) or {}
+        name = prod.get("name") or asin
+        form_factor = prod.get("form_factor", "2280")
+        capacity = prod.get("capacity", "N/D")
+
+        print(f"\n[{idx}/{len(asins)}] Controllo {asin}: {name} ({len(subscribers)} utenti)")
+
         result = fetch_amazon_product(asin)
+        if result.get("blocked"):
+            print(f"  ⏸️  Amazon in pausa di sicurezza ({result.get('error')}). Scansione interrotta.")
+            return
         if not result["success"]:
             print(f"  ⚠️  Errore nel rilevamento: {result.get('error')}")
             time.sleep(delay)
@@ -148,25 +166,29 @@ def check_all_products(config: Dict[str, Any], storage: Storage, dry_run: bool =
         curr_price = result["price"]
         discount_pct = result["discount_pct"]
         deal_badge = result["deal_badge"]
-        title = result.get("title") or name
+        print(f"  💵 Prezzo rilevato: {curr_price:.2f} € (-{discount_pct:.0f}%) | Badge: '{deal_badge or 'Nessuno'}'")
 
         prev_lowest = storage.get_lowest_price(asin)
-        print(f"  💵 Prezzo rilevato: {curr_price:.2f} € (Listino sconto: -{discount_pct:.0f}%) | Badge: '{deal_badge or 'Nessuno'}'")
-
         if not dry_run:
             storage.record_price(asin, curr_price, discount_pct, deal_badge, result["is_available"])
 
-        should_alert, reason = storage.should_send_alert(
-            asin=asin,
-            current_price=curr_price,
-            target_price=target_price,
-            cooldown_hours=cooldown_hours,
-            notify_on_all_time_low=notify_on_all_time_low
-        )
+        for sub in subscribers:
+            chat_id = sub["chat_id"]
+            target_price = float(sub["target_price"])
 
-        if should_alert:
+            should_alert, reason = storage.should_send_user_alert(
+                chat_id=chat_id,
+                asin=asin,
+                current_price=curr_price,
+                target_price=target_price,
+                cooldown_hours=cooldown_hours,
+                notify_on_all_time_low=notify_on_all_time_low,
+            )
+            if not should_alert:
+                print(f"  ℹ️  utente {chat_id}: nessun alert ({reason or f'sopra target {target_price:.2f} €'})")
+                continue
+
             alerts_triggered += 1
-            print(f"  🔔 ALERT TRIGGERATO! Motivo: {reason}")
             alert_msg = format_telegram_alert(
                 product_name=name,
                 form_factor=form_factor,
@@ -177,28 +199,22 @@ def check_all_products(config: Dict[str, Any], storage: Storage, dry_run: bool =
                 discount_pct=discount_pct,
                 deal_badge=deal_badge,
                 asin=asin,
-                reason=reason
+                reason=reason,
             )
-            if not dry_run:
-                sent = send_notification(config, alert_msg)
-                if sent:
-                    storage.record_alert(asin, curr_price, reason)
+            if dry_run:
+                print(f"  [DryRun] alert per utente {chat_id} (target {target_price:.2f} €): {reason}")
+                continue
+            if send_via_telegram_bot(token, chat_id, alert_msg):
+                storage.record_user_alert(chat_id, asin, curr_price, reason)
+                print(f"  🔔 alert inviato a {chat_id}: {reason}")
             else:
-                print("  [DryRun] Simulazione invio messaggio:")
-                print("  " + "-" * 40)
-                print("  " + alert_msg.replace("\n", "\n  "))
-                print("  " + "-" * 40)
-        else:
-            if reason:
-                print(f"  ℹ️  Nessun alert: {reason}")
-            else:
-                print(f"  ℹ️  Prezzo attuale ({curr_price:.2f} €) sopra la soglia target ({target_price:.2f} €)")
+                print(f"  ❌ invio a {chat_id} fallito")
 
-        # Pausa di rispetto verso il server
-        if idx < len(products):
+        if idx < len(asins):
             time.sleep(delay)
 
     print(f"\n🏁 Scansione completata. Alert generati: {alerts_triggered}")
+
 
 def main():
     parser = argparse.ArgumentParser(description="SSD M.2 2280 Black Friday Price Drop Poller")
