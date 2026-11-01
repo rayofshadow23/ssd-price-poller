@@ -117,62 +117,6 @@ def get_shared_session():
         return _shared_session
 
 
-# ---------------------------------------------------------------------------
-# Proxy rotation (optional)
-# ---------------------------------------------------------------------------
-import os
-
-_PROXY_CACHE = {"list": [], "ts": 0.0}
-_PROXY_TTL = 300.0
-
-
-def _load_proxy_list_from_env():
-    raw = os.environ.get("PROXY_LIST", "").strip()
-    if raw:
-        return [x.strip() for x in raw.split(",") if x.strip()]
-    # fallback: file shipped in image / mounted
-    path = os.environ.get("PROXY_LIST_FILE", "/app/proxyscrape_premium_http_proxies.txt")
-    try:
-        with open(path) as f:
-            return [l.strip() for l in f if l.strip() and not l.strip().startswith("#")]
-    except FileNotFoundError:
-        return []
-
-
-def _fetch_proxy_list_from_api():
-    url = os.environ.get("PROXYSCRAPE_API_URL", "https://api.proxyscrape.com/v2/?request=getproxies&protocol=http&timeout=10000&country=all&ssl=all&anonymity=all").strip()
-    if not url:
-        return []
-    try:
-        r = requests.get(url, timeout=10)
-        r.raise_for_status()
-        # support newline or json-ish lists
-        lines = [l.strip() for l in r.text.splitlines() if l.strip()]
-        proxies = []
-        for l in lines:
-            if "://" in l:
-                proxies.append(l)
-            elif ":" in l:
-                proxies.append(f"http://{l}")
-        return proxies
-    except Exception:
-        return []
-
-
-def get_proxy():
-    now = time.time()
-    if now - _PROXY_CACHE["ts"] > _PROXY_TTL or not _PROXY_CACHE["list"]:
-        lst = _load_proxy_list_from_env()
-        if not lst:
-            lst = _fetch_proxy_list_from_api()
-        _PROXY_CACHE["list"] = lst
-        _PROXY_CACHE["ts"] = now
-    lst = _PROXY_CACHE["list"]
-    if not lst:
-        return None
-    return random.choice(lst)
-
-
 def _reset_shared_session():
     global _shared_session
     with _session_lock:
@@ -235,19 +179,16 @@ _ip_cache = {"ip": None, "at": 0.0}
 def get_public_ip() -> str:
     """IP pubblico con cui il container esce su internet. Non passa da Amazon."""
     now = time.monotonic()
-    if _ip_cache["ip"] and now - _ip_cache["at"] < 300:
+    if _ip_cache["ip"] and now - _ip_cache["at"] < 86400:
         return _ip_cache["ip"]
-    for _ in range(15):
-        try:
-            proxy = get_proxy()
-            proxies = {"http": proxy, "https": proxy} if proxy else None
-            ip = requests.get("https://api.ipify.org", params={"format": "text"}, timeout=5, proxies=proxies).text.strip()
-            if re.fullmatch(r"[0-9a-fA-F:.]{7,45}", ip):
-                _ip_cache.update({"ip": ip, "at": now})
-                return ip
-        except Exception:
-            continue
-    return "sconosciuto"
+    try:
+        ip = requests.get("https://api.ipify.org", params={"format": "text"}, timeout=5).text.strip()
+        if not re.fullmatch(r"[0-9a-fA-F:.]{7,45}", ip):
+            raise ValueError("risposta non valida")
+    except Exception:
+        return "sconosciuto"
+    _ip_cache.update({"ip": ip, "at": now})
+    return ip
 
 # ---------------------------------------------------------------------------
 # Cache
@@ -397,7 +338,7 @@ def _fail(asin: str, error: str, blocked: bool = False) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
-def fetch_amazon_product(asin: str, session=None, max_retries: int = 3) -> Dict[str, Any]:
+def fetch_amazon_product(asin: str, session=None, max_retries: int = 1) -> Dict[str, Any]:
     """
     Fetch one product page from Amazon.it.
     - cache, global rate limit and circuit breaker are inside this function
@@ -416,10 +357,6 @@ def fetch_amazon_product(asin: str, session=None, max_retries: int = 3) -> Dict[
 
     for attempt in range(max_retries + 1):
         s = session or get_shared_session()
-        if session is None:
-            proxy = get_proxy()
-            if proxy:
-                s.proxies = {"http": proxy, "https": proxy}
         _throttle()
 
         left = blocked_seconds_left()
