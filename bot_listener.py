@@ -480,6 +480,8 @@ class MultiUserBotListener:
 
     def run(self):
         print(f"🚀 Multi-User Bot Listener avviato. Accesso limitato a {len(self.allowed_ids)} chat in allowlist.")
+        from fetchers.amazon_scraper import get_public_ip
+        print(f"🌐 IP pubblico in uscita: {get_public_ip()}")
         interval_min = self.config.get("check_interval_minutes", 30)
         print(f"[Daemon] Intervallo scansione automatica impostato a {interval_min} minuti.")
 

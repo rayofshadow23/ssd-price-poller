@@ -169,6 +169,27 @@ def _record_success():
         _block_strikes = 0
 
 
+
+# ---------------------------------------------------------------------------
+# Public IP (logged at startup and on every block, cached 24h)
+# ---------------------------------------------------------------------------
+_ip_cache = {"ip": None, "at": 0.0}
+
+
+def get_public_ip() -> str:
+    """IP pubblico con cui il container esce su internet. Non passa da Amazon."""
+    now = time.monotonic()
+    if _ip_cache["ip"] and now - _ip_cache["at"] < 86400:
+        return _ip_cache["ip"]
+    try:
+        ip = requests.get("https://api.ipify.org", params={"format": "text"}, timeout=5).text.strip()
+        if not re.fullmatch(r"[0-9a-fA-F:.]{7,45}", ip):
+            raise ValueError("risposta non valida")
+    except Exception:
+        return "sconosciuto"
+    _ip_cache.update({"ip": ip, "at": now})
+    return ip
+
 # ---------------------------------------------------------------------------
 # Cache
 # ---------------------------------------------------------------------------
@@ -354,7 +375,7 @@ def fetch_amazon_product(asin: str, session=None, max_retries: int = 1) -> Dict[
             )
             if is_block:
                 pause = _trip_breaker()
-                print(f"[AMAZON] Blocco/CAPTCHA rilevato. Pausa di {pause // 60} minuti.")
+                print(f"[AMAZON] Blocco/CAPTCHA rilevato. IP pubblico: {get_public_ip()}. Pausa di {pause // 60} minuti.")
                 return _fail(asin, "Amazon CAPTCHA", blocked=True)
 
             if resp.status_code != 200:
